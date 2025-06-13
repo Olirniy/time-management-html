@@ -169,6 +169,7 @@ cython_debug/
 .giga/
 .ide/
 .metadata/
+.gigaide/
 
 # Системные файлы
 .DS_Store
