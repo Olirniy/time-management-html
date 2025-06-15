@@ -189,4 +189,5 @@ config.json
 /dist/
 /build/
 /out/
-/bin/
+/bin/service.py
+bin/service.py
