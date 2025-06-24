@@ -1,9 +1,8 @@
 import scrapy
 import re
+import json
 from urllib.parse import urljoin
 from collections import defaultdict
-import math
-
 
 class LustrofnewparsSpider(scrapy.Spider):
     name = "lustrofnewpars"
@@ -24,7 +23,7 @@ class LustrofnewparsSpider(scrapy.Spider):
                 'encoding': 'utf8',
                 'store_empty': False,
                 'fields': ['name', 'code', 'price', 'old_price', 'availability', 'url', 'page'],
-                'overwrite': True
+                'overwrite': False  # Дозапись вместо перезаписи
             }
         }
     }
@@ -32,7 +31,17 @@ class LustrofnewparsSpider(scrapy.Spider):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.stats = defaultdict(int)
-        self.products_per_page = 96
+        self.processed_pages = set()
+        self.load_processed_pages()
+
+    def load_processed_pages(self):
+        try:
+            with open('products.json', 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                self.processed_pages = {item['page'] for item in data}
+                self.logger.info(f"Загружено обработанных страниц: {len(self.processed_pages)}")
+        except (FileNotFoundError, json.JSONDecodeError):
+            self.processed_pages = set()
 
     def parse(self, response):
         # Простой метод определения страниц
@@ -41,15 +50,22 @@ class LustrofnewparsSpider(scrapy.Spider):
 
         self.logger.info(f'Найдено страниц: {self.stats["total_pages"]}')
 
-        yield from self.parse_products(response)
+        # Обработка первой страницы
+        if 1 not in self.processed_pages:
+            yield from self.parse_products(response)
+        else:
+            self.logger.info("Страница 1 уже обработана, пропускаем")
 
-        if self.stats['total_pages'] > 1:
-            for page in range(2, self.stats["total_pages"] + 1):
-                yield response.follow(
-                    f"{response.url}?page={page}",
-                    callback=self.parse_products,
-                    meta={'page': page}
-                )
+        # Обработка последующих страниц
+        for page in range(2, self.stats["total_pages"] + 1):
+            if page in self.processed_pages:
+                continue
+
+            yield response.follow(
+                f"{response.url}?page={page}",
+                callback=self.parse_products,
+                meta={'page': page}
+            )
 
     def parse_products(self, response):
         page = response.meta.get('page', 1)
