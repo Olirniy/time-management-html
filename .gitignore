@@ -191,3 +191,18 @@ config.json
 /out/
 /bin/service.py
 bin/service.py
+
+# Файлы парсера Lustrof
+/lustrofpars/lustrofpars/spiders/interier_products.json
+
+# Кеш-файлы Scrapy
+/httpcache/
+
+# Временные данные
+
+*.bak
+
+# Локальные настройки
+settings_local.py
+
+

@@ -3,3 +3,4 @@ webdriver-manager
 scrapy
 bs4
 ipython
+tqdm
