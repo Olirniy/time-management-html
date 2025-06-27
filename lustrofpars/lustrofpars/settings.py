@@ -5,18 +5,35 @@ NEWSPIDER_MODULE = "lustrofpars.spiders"
 ROBOTSTXT_OBEY = False
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
 
-CONCURRENT_REQUESTS = 1
-DOWNLOAD_DELAY = 2.0
-RETRY_TIMES = 2
 
-FEED_EXPORT_ENCODING = "utf-8"
-LOG_LEVEL = "INFO"
 
+# Увеличиваем количество одновременных запросов
+CONCURRENT_REQUESTS = 4
+
+# Уменьшаем задержку между запросами
+DOWNLOAD_DELAY = 0.5
+
+# Настраиваем авторегулировку скорости
+AUTOTHROTTLE_ENABLED = True
+AUTOTHROTTLE_START_DELAY = 0.5
+AUTOTHROTTLE_MAX_DELAY = 3.0
+AUTOTHROTTLE_TARGET_CONCURRENCY = 2.0
+
+# Отключаем куки для уменьшения нагрузки
+COOKIES_ENABLED = False
+
+# Добавляем middleware для ротации User-Agent
 DOWNLOADER_MIDDLEWARES = {
     'scrapy.downloadermiddlewares.useragent.UserAgentMiddleware': None,
+    'scrapy.downloadermiddlewares.retry.RetryMiddleware': 90,
+    'scrapy_fake_useragent.middleware.RandomUserAgentMiddleware': 400,
 }
 
-ITEM_PIPELINES = {}
+# Включаем кеширование на более длительный срок
+HTTPCACHE_ENABLED = True
+HTTPCACHE_EXPIRATION_SECS = 86400 * 7  # 7 дней
+HTTPCACHE_DIR = "httpcache"
+HTTPCACHE_IGNORE_HTTP_CODES = [500, 502, 503, 504, 408]
 
 # Configure maximum concurrent requests performed by Scrapy (default: 16)
 #CONCURRENT_REQUESTS = 32

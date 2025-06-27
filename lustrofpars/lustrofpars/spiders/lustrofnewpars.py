@@ -7,8 +7,6 @@ from urllib.parse import urljoin, urlparse, parse_qs
 from collections import defaultdict
 from tqdm import tqdm
 
-
-
 class LustrofnewparsSpider(scrapy.Spider):
     name = "lustrofnewpars"
     allowed_domains = ["lustrof.ru"]
@@ -16,83 +14,90 @@ class LustrofnewparsSpider(scrapy.Spider):
 
     custom_settings = {
         'FEED_EXPORT_ENCODING': 'utf-8',
-        'DOWNLOAD_DELAY': 1.5,
-        'CONCURRENT_REQUESTS': 2,
-        'RETRY_TIMES': 3,
+        # Ускоренные параметры
+        'CONCURRENT_REQUESTS': 4,
+        'DOWNLOAD_DELAY': 0.5,
         'AUTOTHROTTLE_ENABLED': True,
-        'AUTOTHROTTLE_START_DELAY': 2,
-        'USER_AGENT': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'ROBOTSTXT_OBEY': False,
-        'LOG_LEVEL': 'INFO',
+        'AUTOTHROTTLE_START_DELAY': 0.5,
+        'AUTOTHROTTLE_MAX_DELAY': 3.0,
+        'AUTOTHROTTLE_TARGET_CONCURRENCY': 2.0,
 
-        # Кеширование страниц
-        'HTTPCACHE_ENABLED': True,
-        'HTTPCACHE_EXPIRATION_SECS': 86400 * 3,  # 3 дня
-        'HTTPCACHE_DIR': 'httpcache',
-        'HTTPCACHE_IGNORE_HTTP_CODES': [500, 502, 503, 504, 408],
+        # Настройки для обхода защиты
+        'DOWNLOADER_MIDDLEWARES': {
+            'scrapy.downloadermiddlewares.useragent.UserAgentMiddleware': None,
+            'scrapy.downloadermiddlewares.retry.RetryMiddleware': 90,
+            'scrapy_fake_useragent.middleware.RandomUserAgentMiddleware': 400,
+        },
 
-        # Экспорт с дозаписью
-        'FEEDS': {
-            'interier_products.json': {
-                'format': 'json',
-                'encoding': 'utf8',
-                'store_empty': False,
-                'fields': ['name', 'code', 'price', 'old_price', 'availability', 'url', 'category'],
-                'overwrite': False  # Теперь дозаписываем!
-            }
-        }
+        # Отключение куков
+        'COOKIES_ENABLED': False,
+
+        # Увеличенный срок кеширования
+        'HTTPCACHE_EXPIRATION_SECS': 86400 * 7,  # 7 дней
     }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.stats = defaultdict(int)
         self.processed_urls = set()
-        self.existing_items = self.load_existing_items()  # Загружаем ранее сохранённые товары
-        self.processed_items = set(self.existing_items.keys())  # URL уже обработанных товаров
-        self.stats['total_products'] = len(self.existing_items)  # Учитываем уже сохраненные товары
-
-
+        # Загружаем существующие товары и создаем индекс по URL
+        self.existing_items, self.url_index = self.load_existing_items()
+        self.current_items = {}  # Здесь будем хранить все товары текущего запуска
+        self.stats['total_products'] = len(self.existing_items)
+        self.stats['updated_items'] = 0
+        self.stats['new_items'] = 0
 
     def load_existing_items(self):
-        """Загружает ранее сохранённые товары из JSON-файла"""
+        """Загружает существующие товары и создает индекс по URL"""
         items = {}
+        url_index = {}
         file_path = Path('interier_products.json')
 
         if file_path.exists():
             try:
                 with open(file_path, 'r', encoding='utf8') as f:
-                    # Попробуем прочитать как JSON массив
+                    # Пробуем прочитать как JSON массив
                     try:
                         data = json.load(f)
                         if isinstance(data, list):
                             for item in data:
                                 item_hash = self.generate_item_hash(item)
-                                items[item_hash] = True
-                            self.logger.info(f"Загружено {len(items)} существующих товаров (формат JSON массив)")
-                            return items
+                                items[item_hash] = item
+                                url_index[item['url']] = item_hash
+                            self.logger.info(f"Загружено {len(items)} существующих товаров (JSON массив)")
+                            return items, url_index
                     except json.JSONDecodeError:
                         pass
 
-                    # Если не получилось как массив, пробуем построчно (JSON Lines)
+                    # Пробуем прочитать как JSON Lines
                     f.seek(0)
                     for line in f:
                         try:
                             item = json.loads(line)
                             item_hash = self.generate_item_hash(item)
-                            items[item_hash] = True
+                            items[item_hash] = item
+                            url_index[item['url']] = item_hash
                         except json.JSONDecodeError:
                             continue
-                    self.logger.info(f"Загружено {len(items)} существующих товаров (формат JSON Lines)")
+                    self.logger.info(f"Загружено {len(items)} существующих товаров (JSON Lines)")
             except Exception as e:
                 self.logger.error(f"Ошибка загрузки JSON: {str(e)}")
         else:
             self.logger.info("Файл с сохраненными товарами не найден, начнем с чистого листа")
-        return items
+        return items, url_index
 
     def generate_item_hash(self, item):
         """Создаёт уникальный хеш для товара"""
         unique_str = f"{item['url']}_{item['code']}_{item['name']}"
         return hashlib.md5(unique_str.encode('utf-8')).hexdigest()
+
+    def has_item_changed(self, existing_item, new_item):
+        """Проверяет, изменились ли важные поля товара"""
+        fields_to_check = ['price', 'old_price', 'availability']
+        for field in fields_to_check:
+            if existing_item.get(field) != new_item.get(field):
+                return True
+        return False
 
     def parse(self, response):
         category_url = response.css('ul.dMenu__lv1 li a:contains("Интерьерные светильники")::attr(href)').get()
@@ -233,13 +238,31 @@ class LustrofnewparsSpider(scrapy.Spider):
 
             item_hash = self.generate_item_hash(item)
 
-            if item_hash in self.processed_items:
-                self.logger.debug(f"Пропуск дубликата: {item['name']} ({item['code']})")
-                continue
+            # Проверяем, есть ли товар в существующих данных
+            existing_item = None
+            if full_product_url in self.url_index:
+                existing_hash = self.url_index[full_product_url]
+                existing_item = self.existing_items.get(existing_hash)
 
-            self.processed_items.add(item_hash)
-            self.stats['total_products'] += 1
-            yield item
+            if existing_item:
+                # Проверяем изменения в важных полях
+                if self.has_item_changed(existing_item, item):
+                    self.logger.info(f"Обновлен товар: {item['name']} ({item['code']})")
+                    self.stats['updated_items'] += 1
+                    # Обновляем данные в текущей коллекции
+                    self.current_items[item_hash] = item
+                    yield item
+                else:
+                    self.logger.debug(f"Товар без изменений: {item['name']} ({item['code']})")
+                    # Сохраняем существующую версию
+                    self.current_items[existing_hash] = existing_item
+            else:
+                # Новый товар
+                self.logger.info(f"Новый товар: {item['name']} ({item['code']})")
+                self.current_items[item_hash] = item
+                self.stats['new_items'] += 1
+                self.stats['total_products'] += 1
+                yield item
 
 
 
@@ -263,7 +286,20 @@ class LustrofnewparsSpider(scrapy.Spider):
         return ' '.join(text.strip().split())
 
     def closed(self, reason):
-        new_items = self.stats['total_products'] - len(self.existing_items)
+        # Сохраняем все товары в файл
+        output_file = 'interier_products.json'
+        items_count = len(self.current_items)
+
+        with open(output_file, 'w', encoding='utf8') as f:
+            # Используем tqdm для отображения прогресса записи
+            with tqdm(total=items_count, desc="Сохранение товаров") as pbar:
+                for item in self.current_items.values():
+                    f.write(json.dumps(item, ensure_ascii=False) + '\n')
+                    pbar.update(1)
+
         self.logger.info(
-            f"Сбор завершен. Новых товаров: {new_items} | Всего уникальных: {self.stats['total_products']}"
+            f"Сбор завершен. Новых товаров: {self.stats['new_items']} | "
+            f"Обновлено товаров: {self.stats['updated_items']} | "
+            f"Дубликатов: {self.stats.get('duplicates', 0)} | "
+            f"Всего уникальных: {items_count}"
         )

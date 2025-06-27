@@ -193,8 +193,8 @@ config.json
 bin/service.py
 
 # Файлы парсера Lustrof
-/lustrofpars/lustrofpars/spiders/interier_products.json
-
+interier_products.json
+lustrofpars/lustrofpars/spiders/interier_products.json
 # Кеш-файлы Scrapy
 /httpcache/
 
