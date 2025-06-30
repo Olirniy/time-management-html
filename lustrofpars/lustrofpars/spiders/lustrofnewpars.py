@@ -6,6 +6,9 @@ from pathlib import Path
 from urllib.parse import urljoin, urlparse, parse_qs
 from collections import defaultdict
 from tqdm import tqdm
+import csv
+
+
 
 class LustrofnewparsSpider(scrapy.Spider):
     name = "lustrofnewpars"
@@ -286,20 +289,39 @@ class LustrofnewparsSpider(scrapy.Spider):
         return ' '.join(text.strip().split())
 
     def closed(self, reason):
-        # Сохраняем все товары в файл
-        output_file = 'interier_products.json'
+        # Сохраняем все товары в JSON файл
+        json_file = 'interier_products.json'
         items_count = len(self.current_items)
 
-        with open(output_file, 'w', encoding='utf8') as f:
-            # Используем tqdm для отображения прогресса записи
-            with tqdm(total=items_count, desc="Сохранение товаров") as pbar:
+        # Запись в JSON (как прежде)
+        with open(json_file, 'w', encoding='utf8') as f:
+            with tqdm(total=items_count, desc="Сохранение в JSON") as pbar:
                 for item in self.current_items.values():
                     f.write(json.dumps(item, ensure_ascii=False) + '\n')
                     pbar.update(1)
 
+        # Дополнительно: сохраняем в CSV
+        csv_file = 'interier_products.csv'
+        with open(csv_file, 'w', encoding='utf-8', newline='') as f:
+            # Создаем writer с правильными заголовками
+            writer = csv.DictWriter(f, fieldnames=[
+                'name', 'code', 'price', 'old_price', 'availability', 'url', 'category'
+            ])
+
+            # Пишем заголовок и данные с прогресс-баром
+            writer.writeheader()
+            with tqdm(total=items_count, desc="Сохранение в CSV") as pbar:
+                for item in self.current_items.values():
+                    # Преобразуем None в пустые строки для CSV
+                    cleaned_item = {k: v if v is not None else '' for k, v in item.items()}
+                    writer.writerow(cleaned_item)
+                    pbar.update(1)
+
+        # Статистика (сохраняем вашу текущую логику)
         self.logger.info(
             f"Сбор завершен. Новых товаров: {self.stats['new_items']} | "
             f"Обновлено товаров: {self.stats['updated_items']} | "
             f"Дубликатов: {self.stats.get('duplicates', 0)} | "
             f"Всего уникальных: {items_count}"
         )
+        self.logger.info(f"Данные сохранены в форматах JSON и CSV")
