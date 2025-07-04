@@ -4,3 +4,4 @@ scrapy
 bs4
 ipython
 tqdm
+scrapy-fake-useragent
